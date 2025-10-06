@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bill Generator</title>
+  <link href="bill.css" rel="stylesheet">
+  </head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="brand">
+        <div class="logo">Jk</div>
+        <div>
+          <h1>Javako</h1>
+          <div style="font-size:12px;color:var(--muted)"> Bill Generate</div>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="toggleTheme">Mode</button>
+        <button id="previewBtn">Preview Bill</button>
+        <button id="printBtn">Print / Export PDF</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <h3>Buyer & Transaction</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <label>Buyer Name</label>
+              <input id="buyerName" placeholder="Name">
+            </div>
+            <div>
+              <label>Contact Number</label>
+              <input id="buyerPhone"placeholder="Contact number">
+            </div>
+            <div style="grid-column:1/3">
+              <label>Address</label>
+              <textarea id="buyerAddress" rows="2" placeholder="Address"></textarea>
+            </div>
+            <div>
+              <label>Email</label>
+              <input id="buyerEmail" placeholder="name@example.com">
+            </div>
+            <div>
+              <label>Payment Method</label>
+              <select id="paymentMethod">
+                <option>Cash</option>
+                <option>Card</option>
+                <option>UPI</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card products" style="margin-top:12px">
+          <h3>Products</h3>
+          <table id="productsTable">
+            <thead>
+              <tr><th style="width:42%">Product Name</th><th style="width:16%">Qty</th><th style="width:20%">Unit Price</th><th style="width:18%">Total</th><th style="width:4%"></th></tr>
+            </thead>
+            <tbody id="productsBody">
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+            <button id="addRow"> Add Item</button>
+            <div class="summary">
+              <div class="totals"><div style="color:var(--muted)">Subtotal</div><div id="subtotal">₹0.00</div></div>
+              <div class="totals" style="font-weight:700"><div>Total Due</div><div id="totalDue">₹0.00</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="saveBill">Save Bill</button>
+          <button id="downloadCSV">Download CSV</button>
+          <button id="emailBill">Email Bill</button>
+        </div>
+
+      </div>
+
+      <div>
+        <div class="card">
+          <h3>Search / Saved Bills</h3>
+          <div class="search" style="margin-bottom:8px">
+            <input id="searchInput" placeholder="Search by Transaction ID or Buyer name">
+            <button id="searchBtn">Search</button>
+          </div>
+          <div class="saved-list" id="savedList">
+            <!-- saved bills will appear -->
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Quick Actions</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button id="clearAll">Clear All Saved Bills</button>
+            <small style="color:var(--muted)">Saved bills are stored in your browser's localStorage for demo purposes.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Printable preview (hidden until preview) -->
+    <div id="printable" style="display:none;margin-top:18px" class="card">
+      <div id="printContent" class="preview-area"></div>
+    </div>
+  </div>
+
+  <footer id="billFooter" style="display:none;">
+      <div class="footer-row">
+        <div><strong>Transaction Date:</strong> <span id="transDate"></span></div>
+        <div><strong>Payment Method:</strong> <span id="payMethod"></span></div>
+      </div>
+
+      <div class="terms">
+        <h4>Terms & Conditions</h4>
+        <ul>
+          <li>Goods once sold will not be returned or exchanged.</li>
+          <li>Please retain this bill for future reference.</li>
+          <li>All disputes are subject to local jurisdiction.</li>
+        </ul>
+      </div>
+    </footer>
+  
+
+
+
+
+  <script>
+    // Helpers
+    const $ = id => document.getElementById(id);
+    const formatMoney = v => '₹' + Number(v).toFixed(2);
+
+    // Theme
+    const root = document.documentElement;
+    const toggleTheme = () => {
+      const currently = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      root.setAttribute('data-theme', currently === 'dark' ? 'light' : 'dark');
+    };
+    $('toggleTheme').addEventListener('click', toggleTheme);
+
+    // Product rows management
+    const productsBody = $('productsBody');
+    function createRow(item={name:'',qty:1,price:0}){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input class="pname" value="${item.name}" placeholder="Product name"></td>
+        <td><input type="number" class="pqty" min="1" value="${item.qty}"></td>
+        <td><input type="number" class="pprice" min="0" step="0.01" value="${item.price}"></td>
+        <td class="pTotal">${formatMoney(item.qty*item.price)}</td>
+        <td><div class="row-actions"><button class="remove">✕</button></div></td>
+      `;
+      productsBody.appendChild(tr);
+
+      const qty = tr.querySelector('.pqty');
+      const price = tr.querySelector('.pprice');
+      const name = tr.querySelector('.pname');
+      const totalCell = tr.querySelector('.pTotal');
+
+      function recalc(){
+        const q = Number(qty.value)||0;
+        const p = Number(price.value)||0;
+        totalCell.textContent = formatMoney(q*p);
+        calcTotals();
+      }
+      qty.addEventListener('input', recalc);
+      price.addEventListener('input', recalc);
+      name.addEventListener('input', ()=>{});
+
+      tr.querySelector('.remove').addEventListener('click', ()=>{ tr.remove(); calcTotals(); });
+      recalc();
+      return tr;
+    }
+
+    $('addRow').addEventListener('click', ()=> createRow());
+
+    function getProducts(){
+      const rows = [...productsBody.querySelectorAll('tr')];
+      return rows.map(r=>({
+        name: r.querySelector('.pname').value||'Untitled',
+        qty: Number(r.querySelector('.pqty').value)||0,
+        price: Number(r.querySelector('.pprice').value)||0,
+        total: (Number(r.querySelector('.pqty').value)||0)*(Number(r.querySelector('.pprice').value)||0)
+      })).filter(i=>i.qty>0 && i.price>=0);
+    }
+
+    function calcTotals(){
+      const items = getProducts();
+      const subtotal = items.reduce((s,i)=>s + i.total, 0);
+      $('subtotal').textContent = formatMoney(subtotal);
+      $('totalDue').textContent = formatMoney(subtotal);
+    }
+
+    // Preview / Print
+    function renderBillHTML(data){
+      const itemsHtml = data.items.map(it=>`<tr><td>${escapeHtml(it.name)}</td><td style="text-align:right">${it.qty}</td><td style="text-align:right">${formatMoney(it.price)}</td><td style="text-align:right">${formatMoney(it.total)}</td></tr>`).join('');
+      return `
+        <div style="max-width:800px;margin:0 auto;font-family:Arial;color:var(--text);">
+          <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div>
+              <h2 style="margin:0">Company Name</h2>
+              <div style="font-size:12px;color:var(--muted)">Company Address Line 1<br>Phone: 0123-456789</div>
+            </div>
+            <div style="text-align:right;font-size:12px">
+              <div>Transaction ID: <strong>${data.transactionId}</strong></div>
+              <div>Date: ${data.date}</div>
+              <div>Payment: ${escapeHtml(data.paymentMethod)}</div>
+            </div>
+          </header>
+
+          <section style="margin-bottom:8px">
+            <strong>Bill To:</strong>
+            <div>${escapeHtml(data.buyerName)} | ${escapeHtml(data.buyerPhone)}</div>
+            <div>${escapeHtml(data.buyerAddress)}</div>
+            <div>${escapeHtml(data.buyerEmail)}</div>
+          </section>
+
+          <table style="width:100%;border-collapse:collapse;border-top:1px solid #ddd">
+            <thead>
+              <tr style="background:#f7f7f7"><th style="padding:8px;text-align:left">Product</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Unit</th><th style="padding:8px;text-align:right">Total</th></tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+          <div style="display:flex;justify-content:flex-end;margin-top:10px">
+            <div style="width:300px">
+              <div style="display:flex;justify-content:space-between;padding:6px 0"><div>Subtotal</div><div>${formatMoney(data.subtotal)}</div></div>
+              <hr>
+              <div style="display:flex;justify-content:space-between;font-weight:700;padding:6px 0"> <div>Total Due</div><div>${formatMoney(data.total)}</div></div>
+            </div>
+          </div>
+
+          <footer style="margin-top:18px;font-size:12px;color:var(--muted)">Payment Method: ${escapeHtml(data.paymentMethod)} | Thank you for your purchase.</footer>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s){ return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    $('previewBtn').addEventListener('click', ()=>{
+      const bill = collectBill();
+      if (!bill) return;
+      $('printContent').innerHTML = renderBillHTML(bill);
+      $('printable').style.display = 'block';
+      $('printable').scrollIntoView({behavior:'smooth'});
+    });
+
+    $('printBtn').addEventListener('click', ()=>{
+      const bill = collectBill();
+      if (!bill) return;
+      $('printContent').innerHTML = renderBillHTML(bill);
+      $('printable').style.display = 'block';
+      // open print dialog (user can Save as PDF)
+      setTimeout(()=>window.print(), 250);
+    });
+
+    function collectBill(){
+      const items = getProducts();
+      if (items.length===0){ alert('Add at least one product.'); return null; }
+      const buyerName = $('buyerName').value || 'Unnamed';
+      const buyerPhone = $('buyerPhone').value || '';
+      const buyerAddress = $('buyerAddress').value || '';
+      const buyerEmail = $('buyerEmail').value || '';
+      const paymentMethod = $('paymentMethod').value || 'Cash';
+      const subtotal = items.reduce((s,i)=>s+i.total,0);
+      const transactionId = 'TX' + Date.now();
+      const date = new Date().toLocaleString();
+      return { transactionId, date, buyerName, buyerPhone, buyerAddress, buyerEmail, paymentMethod, items, subtotal, total: subtotal };
+    }
+
+    // Save to localStorage
+    function loadSaved(){
+      const raw = localStorage.getItem('savedBills');
+      return raw ? JSON.parse(raw) : [];
+    }
+    function persistSaved(arr){ localStorage.setItem('savedBills', JSON.stringify(arr)); renderSavedList(arr); }
+
+    $('saveBill').addEventListener('click', ()=>{
+      const bill = collectBill(); if (!bill) return;
+      const saved = loadSaved();
+      saved.unshift(bill);
+      persistSaved(saved);
+      alert('Bill saved with Transaction ID: ' + bill.transactionId);
+    });
+
+    function renderSavedList(list){
+      const el = $('savedList'); el.innerHTML='';
+      if (!list.length) { el.innerHTML = '<div style="color:var(--muted)">No saved bills</div>'; return; }
+      list.forEach(b=>{
+        const div = document.createElement('div');
+        div.style.borderBottom='1px dashed #e6eef8'; div.style.padding='8px 4px';
+        div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${escapeHtml(b.buyerName)}</strong><div style="font-size:12px;color:var(--muted)">${b.transactionId} • ${b.date}</div></div><div style="display:flex;gap:6px"><button data-action="open">Open</button><button data-action="generate">Generate Bill</button><button data-action="delete">Delete</button></div></div>`;
+        el.appendChild(div);
+        div.querySelector('[data-action=open]').addEventListener('click', ()=>{
+          // populate form from saved
+          $('buyerName').value = b.buyerName; $('buyerPhone').value = b.buyerPhone; $('buyerAddress').value = b.buyerAddress; $('buyerEmail').value = b.buyerEmail; $('paymentMethod').value = b.paymentMethod;
+          productsBody.innerHTML=''; b.items.forEach(it=> createRow(it)); calcTotals(); window.scrollTo({top:0,behavior:'smooth'});
+        });
+        div.querySelector('[data-action=generate]').addEventListener('click', ()=>{
+          $('printContent').innerHTML = renderBillHTML(b); $('printable').style.display='block'; $('printable').scrollIntoView({behavior:'smooth'});
+        });
+        div.querySelector('[data-action=delete]').addEventListener('click', ()=>{
+          if (!confirm('Delete this saved bill?')) return;
+          const newList = loadSaved().filter(x=>x.transactionId!==b.transactionId); persistSaved(newList);
+        });
+      });
+    }
+
+    $('clearAll').addEventListener('click', ()=>{ if(confirm('Clear all saved bills?')){ localStorage.removeItem('savedBills'); renderSavedList([]);} });
+
+    $('searchBtn').addEventListener('click', ()=>{
+      const q = $('searchInput').value.trim().toLowerCase();
+      const all = loadSaved();
+      const filtered = all.filter(b=> b.transactionId.toLowerCase().includes(q) || b.buyerName.toLowerCase().includes(q));
+      renderSavedList(filtered);
+    });
+
+    // Download CSV
+    $('downloadCSV').addEventListener('click', ()=>{
+      const items = getProducts(); if(items.length===0){ alert('Add products to download CSV'); return; }
+      const bill = collectBill(); if(!bill) return;
+      let csv = 'Transaction ID,Date,Buyer,Phone,Email,Address,Payment,Item,Qty,UnitPrice,ItemTotal\n';
+      bill.items.forEach(it=>{
+        csv += `${bill.transactionId},"${bill.date}","${bill.buyerName}","${bill.buyerPhone}","${bill.buyerEmail}","${bill.buyerAddress}","${bill.paymentMethod}","${it.name}",${it.qty},${it.price},${it.total}\n`;
+      });
+      csv += `,,,,,,,Subtotal,,${bill.subtotal},\n`;
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = bill.transactionId + '.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    // Email (opens mail client with bill as plain text in body)
+    $('emailBill').addEventListener('click', ()=>{
+      const bill = collectBill(); if(!bill) return;
+      let body = `Transaction: ${bill.transactionId}\nDate: ${bill.date}\nBuyer: ${bill.buyerName} (${bill.buyerPhone})\nAddress: ${bill.buyerAddress}\n\nItems:\n`;
+      bill.items.forEach(it=> body += `${it.name} — ${it.qty} x ${it.price} = ${it.total}\n`);
+      body += `\nTotal: ${bill.total}\n\n`; 
+      const mailto = `mailto:${encodeURIComponent(bill.buyerEmail)}?subject=${encodeURIComponent('Bill '+bill.transactionId)}&body=${encodeURIComponent(body)}`;
+      window.location.href = mailto;
+    });
+
+    // Initial state
+    createRow({name:'Bags', qty:1, price:99.99}); createRow({name:'Pillow', qty:2, price:49.50}); calcTotals(); renderSavedList(loadSaved());
+
+    // Utility: keep calcTotals in case manual edits happen
+    setInterval(calcTotals, 800);
+     const currentDate = new Date().toLocaleString();
+      const paymentMethod = document.getElementById("paymentMethod").value;
+
+          // Set values in footer
+      document.getElementById("transDate").textContent = currentDate;
+      document.getElementById("payMethod").textContent = paymentMethod;
+
+      // Show the footer section
+      document.getElementById("billFooter").style.display = "block";
+
+
+   
+  </script>
+</body>
+</html>
